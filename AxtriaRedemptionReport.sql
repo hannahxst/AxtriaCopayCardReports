@@ -32,8 +32,8 @@ Enbrel_Production.DBO.tblDebitChargeCardInfo
 Enbrel_Production.DBO.tblcardInfoDebitOther
 Enbrel_Production.DBO.tblCardInfoCRX
 Enbrel_Production.DBO.tblCardInfo
-Enbrel_GEOlevelreport.DBO.inPhysicianFaxRaw_20180402
-Enbrel_GEOlevelreport.DBO.tblFullFeedImportAllApprovedClaims_fullhistory
+Axtria_dev.DBO.inPhysicianFaxRaw	--inPhysicianFaxRaw_20180402
+Axtria_dev.DBO.tblFullFeedImportAllApprovedClaims_fullhistory
 Axtria_dev.DBO.tblImportCustNomProf
 Axtria_dev.DBO.tblImportCustTerr
 Axtria_dev.DBO.tblImportGeoTerr
@@ -41,6 +41,8 @@ Axtria_dev.DBO.tblImportTerrHierarchy
 Axtria_dev.DBO.tblImportTarget
 Axtria_dev.DBO.tblImportAmaPDRP
 Axtria_dev.DBO.tblImportRepTerr
+Axtria_dev.DBO.tblImportRepTerr_Test	--internal test
+Axtria_dev.DBO.inINBURoster		--inINBURoster_20180612
 
 Output:
 select * from tblGeo
@@ -299,7 +301,7 @@ INNER JOIN (
 	FROM Enbrel_Production.DBO.tblProgram
 ) T ON C.PatientProgramType = T.ProgramID
 --LEFT JOIN Enbrel_Production.DBO.tblDoctors D ON C.DoctorID = D.tblDoctorsID
-LEFT JOIN DBO.tblFullFeedImportAllApprovedClaims_fullhistory D ON C.tblClaimID = D.tblClaimID
+LEFT JOIN Axtria_dev.DBO.tblFullFeedImportAllApprovedClaims_fullhistory D ON C.tblClaimID = D.tblClaimID
 LEFT JOIN Enbrel_Production.DBO.tblPatientInfo P ON C.PatientID = P.PatientID
 LEFT JOIN Enbrel_Production.DBO.tblPharmacies H ON C.PharmacyID = H.tblPharmaciesID
 WHERE Status = 'Approved' AND ApprovedAmount > 0
@@ -478,7 +480,7 @@ CASE WHEN ContactName LIKE '%,%' THEN SUBSTRING(ContactName,1,CHARINDEX(',',Cont
 ,'Dr. ',''),' Jr.',''),' Sr.',''),'Mr. ',''),'Ms. ',''),'Mrs. ',''),'Miss ','')
 ,' Physician Pc',''),'Md Pc',''),' Md Llc','')) AS PhysicianName,
 UPPER(Addr1) AS Address1,UPPER(City) AS City, State, LEFT(Zip,5) AS Zip
-FROM DBO.inPhysicianFaxRaw_20180402
+FROM Axtria_dev.DBO.inPhysicianFaxRaw_20180402
 ) B ON A.NPI = B.NPI
 WHERE A.NPI IS NOT NULL
 GO
@@ -1177,6 +1179,12 @@ INNER JOIN (
 		GROUP BY PatientID, CardID
 	) B WHERE A.PatientID = B.PatientID AND A.CardID = B.CardID AND A.Date_Name = B.Date_Name)
 ) B ON A.PatientID = B.PatientID AND A.CardID = B.CardID
+GO
+
+--Set to 0 if Time_1stTransaction is negative
+UPDATE DBO.tblActivations
+SET Time_1stTransaction = 0
+WHERE Time_1stTransaction < 0
 GO
 
 --UPDATE A
@@ -1972,8 +1980,10 @@ GO
 
 --SELECT * FROM tblGeo
 
-/*
-ALTER VIEW V_OutputGeo
+IF OBJECT_ID('V_OutputGeo') IS NOT NULL
+DROP TABLE V_OutputGeo
+GO
+CREATE VIEW V_OutputGeo
 AS
 SELECT 'Terr' AS Lev, Terr AS Geo, TerrName AS GeoName
 FROM DBO.tblGeo
@@ -1989,16 +1999,22 @@ FROM DBO.tblGeo
 UNION ALL
 SELECT 'Unk' AS Lev, '00000' AS Geo, 'Unknown' AS GeoName
 GO
-
+/*
 USE Axtria_dev
 GO
 ALTER VIEW V_RepRoster
 AS
 SELECT TERRITORY_NUMBER AS Geo, STAFF_EMAIL AS Email
-FROM Axtria_dev.DBO.tblImportRepTerr_Test--Axtria_dev.DBO.tblImportRepTerr
+FROM Axtria_dev.DBO.tblImportRepTerr_Test
 WHERE PRIMARY_TERRITORY = 'Y' AND IS_ACTIVE = 'Y'
 AND TERRITORY_NUMBER IN (SELECT Geo FROM Enbrel_GEOlevelreport.DBO.V_OutputGeo)
+--SELECT [Territory #] AS Geo, Email
+--FROM Axtria_dev.DBO.inINBURoster
+--WHERE Flag = 'PRI' AND FFName IN ('INBU APEX SF','INBU PINNACLE SF','INBU SUMMIT SF')
+--AND [Territory #] IN (SELECT Geo FROM Enbrel_GEOlevelreport.DBO.V_OutputGeo)
 GO
+
+select * from Axtria_dev.DBO.tblImportRepTerr_Test
 
 CREATE VIEW V_DateConfig
 AS
@@ -2010,6 +2026,12 @@ SELECT * FROM Enbrel_GEOlevelreport.DBO.V_OutputGeo
 WHERE GEO NOT IN (
 SELECT TERRITORY_NUMBER FROM Axtria_dev.DBO.tblImportRepTerr
 WHERE PRIMARY_TERRITORY = 'Y' AND IS_ACTIVE = 'Y'
+)
+
+SELECT * FROM Enbrel_GEOlevelreport.DBO.V_OutputGeo
+WHERE GEO NOT IN (
+SELECT [Territory #] FROM Axtria_dev.DBO.inINBURoster
+WHERE Flag = 'PRI' AND FFName IN ('INBU APEX SF','INBU PINNACLE SF','INBU SUMMIT SF')
 )
 
 SELECT * INTO Axtria_dev.DBO.tblImportRepTerr_Test
@@ -5785,6 +5807,51 @@ where left(G,2) <> left(Reg,2)
 print'Physician Detail End'
 print getdate()
 go
+
+if object_id('tempExpiredPatient') is not null
+drop table tempExpiredPatient
+if object_id('tempNotUsingCard') is not null
+drop table tempNotUsingCard
+if object_id('tempPhysicianExpiredPatient') is not null
+drop table tempPhysicianExpiredPatient
+if object_id('tempPhysicianExpiredPatient') is not null
+drop table tempPhysicianExpiredPatient
+if object_id('tempTimetoFirstTransaction') is not null
+drop table tempTimetoFirstTransaction
+if object_id('tempTimetoFirstTransaction_PDRP') is not null
+drop table tempTimetoFirstTransaction_PDRP
+if object_id('tempTimetoFirstTransaction_PDRP_Dist') is not null
+drop table tempTimetoFirstTransaction_PDRP_Dist
+if object_id('tempTimetoFirstTransaction_PDRP_Reg') is not null
+drop table tempTimetoFirstTransaction_PDRP_Reg
+if object_id('tempTimetoFirstTransaction_Unknown') is not null
+drop table tempTimetoFirstTransaction_Unknown
+if object_id('tempTimetoFirstTransaction_Unknown_Dist') is not null
+drop table tempTimetoFirstTransaction_Unknown_Dist
+if object_id('tempTimetoFirstTransaction_Unknown_Reg') is not null
+drop table tempTimetoFirstTransaction_Unknown_Reg
+if object_id('tempTimetoFirstTransaction_Unknown_Dist') is not null
+drop table tempTimetoFirstTransaction_Unknown_Dist
+if object_id('tempTransactions') is not null
+drop table tempTransactions
+if object_id('tempTransactions_Dist') is not null
+drop table tempTransactions_Dist
+if object_id('tempTransactions_Reg') is not null
+drop table tempTransactions_Reg
+if object_id('tempTransactionsWithPeriod') is not null
+drop table tempTransactionsWithPeriod
+go
+
+
+
+
+
+
+
+
+
+
+
 
 
 
